@@ -70,7 +70,9 @@ void SimpleChargingDock::configure(
 
   // If not using stall detection, this is how close robot should get to pose
   nav2_util::declare_parameter_if_not_declared(
-    node_, name + ".docking_threshold", rclcpp::ParameterValue(0.05));
+    node_, name + ".goal_distance_tolerance", rclcpp::ParameterValue(0.05));
+  nav2_util::declare_parameter_if_not_declared(
+    node_, name + ".goal_angular_tolerance", rclcpp::ParameterValue(0.05));
 
   // Staging pose configuration
   nav2_util::declare_parameter_if_not_declared(
@@ -93,16 +95,18 @@ void SimpleChargingDock::configure(
   node_->get_parameter(name + ".charging_threshold", charging_threshold_);
   node_->get_parameter(name + ".stall_velocity_threshold", stall_velocity_threshold_);
   node_->get_parameter(name + ".stall_effort_threshold", stall_effort_threshold_);
-  node_->get_parameter(name + ".docking_threshold", docking_threshold_);
+  node_->get_parameter(name + ".goal_distance_tolerance", goal_distance_tolerance_);
+  node_->get_parameter(name + ".goal_angular_tolerance", goal_angular_tolerance_);
   node_->get_parameter(name + ".staging_x_offset", staging_x_offset_);
   node_->get_parameter(name + ".staging_yaw_offset", staging_yaw_offset_);
   node_->get_parameter("base_frame", base_frame_id_);  // Get server base frame ID
-
+  dyn_params_handler_ = node_->add_on_set_parameters_callback(
+    std::bind(&SimpleChargingDock::dynamicParametersCallback, this, std::placeholders::_1));
   // Setup filter
   double filter_coef;
   node_->get_parameter(name + ".filter_coef", filter_coef);
   filter_ = std::make_unique<PoseFilter>(filter_coef, external_detection_timeout_);
-
+    
   if (use_battery_status_) {
     battery_sub_ = node_->create_subscription<sensor_msgs::msg::BatteryState>(
       "battery_state", 1,
@@ -137,6 +141,7 @@ void SimpleChargingDock::configure(
   filtered_dock_pose_pub_ = node_->create_publisher<geometry_msgs::msg::PoseStamped>(
     "filtered_dock_pose", 1);
   staging_pose_pub_ = node_->create_publisher<geometry_msgs::msg::PoseStamped>("staging_pose", 1);
+  
 }
 
 geometry_msgs::msg::PoseStamped SimpleChargingDock::getStagingPose(
@@ -263,7 +268,44 @@ bool SimpleChargingDock::isDocked()
   double d = std::hypot(
     base_pose.pose.position.x - dock_pose_.pose.position.x,
     base_pose.pose.position.y - dock_pose_.pose.position.y);
-  return d < docking_threshold_;
+  if (d < goal_distance_tolerance_) 
+  {
+    RCLCPP_INFO(node_->get_logger(), "xy_reached, xy_error: %.3f, goal_distance_tolerance: %.3f", d, goal_distance_tolerance_);
+    return true;
+  }
+  return false;
+}
+
+bool SimpleChargingDock::isHeadingReached()
+{
+  if (joint_state_sub_) {
+    // Using stall detection
+    return is_stalled_;
+  }
+
+  if (dock_pose_.header.frame_id.empty()) {
+    // Dock pose is not yet valid
+    return false;
+  }
+
+  // Find base pose in target frame
+  geometry_msgs::msg::PoseStamped base_pose;
+  base_pose.header.stamp = rclcpp::Time(0);
+  base_pose.header.frame_id = base_frame_id_;
+  base_pose.pose.orientation.w = 1.0;
+  try {
+    tf2_buffer_->transform(base_pose, base_pose, dock_pose_.header.frame_id);
+  } catch (const tf2::TransformException & ex) {
+    return false;
+  }
+  double yaw_diff = std::abs(tf2::getYaw(base_pose.pose.orientation) -
+    tf2::getYaw(dock_pose_.pose.orientation));
+  if (yaw_diff < goal_angular_tolerance_) 
+  {
+    RCLCPP_INFO(node_->get_logger(), "yaw_reached, yaw_error: %.3f, goal_angular_tolerance: %.3f", yaw_diff, goal_angular_tolerance_);
+    return true;
+  }
+  return false;
 }
 
 bool SimpleChargingDock::isCharging()
@@ -300,6 +342,34 @@ void SimpleChargingDock::jointStateCallback(const sensor_msgs::msg::JointState::
   velocity /= stall_joint_names_.size();
 
   is_stalled_ = (velocity < stall_velocity_threshold_) && (effort > stall_effort_threshold_);
+}
+
+rcl_interfaces::msg::SetParametersResult
+SimpleChargingDock::dynamicParametersCallback(std::vector<rclcpp::Parameter> parameters)
+{ 
+  rcl_interfaces::msg::SetParametersResult result;
+  for (auto parameter : parameters)
+  {
+    const auto& type = parameter.get_type();
+    const auto& name = parameter.get_name();
+
+    if (type == rcl_interfaces::msg::ParameterType::PARAMETER_DOUBLE)
+    {
+      if (name == name_+".goal_distance_tolerance")
+      {
+        goal_distance_tolerance_ = parameter.as_double();
+        RCLCPP_INFO(node_->get_logger(), "Successfully set goal_distance_tolerance to: %.2f", goal_distance_tolerance_);
+      }
+      else if (name == name_+".goal_angular_tolerance")
+      {
+        goal_angular_tolerance_ = parameter.as_double();
+        RCLCPP_INFO(node_->get_logger(), "Successfully set goal_angular_tolerance to: %.2f", goal_angular_tolerance_);
+      }
+    }
+  }
+
+  result.successful = true;
+  return result;
 }
 
 }  // namespace opennav_docking

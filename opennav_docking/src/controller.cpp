@@ -114,7 +114,41 @@ bool Controller::computeVelocityCommand(
 {
   std::lock_guard<std::mutex> lock(dynamic_params_lock_);
   cmd = control_law_->calculateRegularVelocity(pose, backward);
-  return isTrajectoryCollisionFree(pose, is_docking, backward);
+  bool collision_free = isTrajectoryCollisionFree(pose, is_docking, backward);
+  if (!collision_free) {
+    RCLCPP_WARN(logger_, "Collision detected, stopping robot");
+    cmd = geometry_msgs::msg::Twist();
+  }
+  return collision_free;
+  // return isTrajectoryCollisionFree(pose, is_docking, backward);
+}
+
+bool Controller::computeFinalHeadingAdjustmentVelocityCommand(const geometry_msgs::msg::Pose& pose,
+                                                              geometry_msgs::msg::Twist& cmd)
+{
+  std::lock_guard<std::mutex> lock(dynamic_params_lock_);
+  double yaw = tf2::getYaw(pose.orientation);
+  cmd.angular.z = forceMinMax(yaw, -v_angular_max_, v_angular_max_);
+  cmd.angular.z = forceMinAbsolute(cmd.angular.z, 0.05);
+  return isTrajectoryCollisionFree(pose, true, false);
+}
+
+double Controller::forceMinMax(double value, double min, double max)
+{
+  return std::min(std::max(value, min), max);
+}
+
+double Controller::forceMinAbsolute(double value, double min_abs)
+{
+  if (value != 0)
+  {
+    if (fabs(value) >= min_abs)
+      return value;
+    return value > 0 ? min_abs : -min_abs;
+  }
+  else
+    RCLCPP_WARN(logger_, "forceMinAbsolute doesn't accept 0 as first input!");
+  return 0;
 }
 
 bool Controller::isTrajectoryCollisionFree(
@@ -169,6 +203,9 @@ bool Controller::isTrajectoryCollisionFree(
       std::hypot(next_pose.pose.position.x, next_pose.pose.position.y);
 
     // If this distance is greater than the dock_collision_threshold, check for collisions
+    // RCLCPP_INFO(
+    //   logger_, "Dock collision distance: %.2f, threshold: %.2f",
+    //   dock_collision_distance, dock_collision_threshold_);
     if (use_collision_detection_ &&
       dock_collision_distance > dock_collision_threshold_ &&
       !collision_checker_->isCollisionFree(nav_2d_utils::poseToPose2D(local_pose.pose)))

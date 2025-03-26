@@ -87,6 +87,7 @@ public:
    * @copydoc opennav_docking_core::ChargingDock::isDocked
    */
   virtual bool isDocked();
+  virtual bool isHeadingReached();
 
   /**
    * @copydoc opennav_docking_core::ChargingDock::isCharging
@@ -104,6 +105,10 @@ public:
   virtual bool hasStoppedCharging();
 
 protected:
+  // dynamic recogfiguration callback
+  rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr dyn_params_handler_;
+  rcl_interfaces::msg::SetParametersResult dynamicParametersCallback(std::vector<rclcpp::Parameter> parameters);
+    
   void jointStateCallback(const sensor_msgs::msg::JointState::SharedPtr state);
 
   // Optionally subscribe to a detected dock pose topic
@@ -141,7 +146,8 @@ protected:
   // Threshold that battery current must exceed to be "charging" (in Amperes)
   double charging_threshold_;
   // If not using an external pose reference, this is the distance threshold
-  double docking_threshold_;
+  double goal_distance_tolerance_;
+  double goal_angular_tolerance_;
   std::string base_frame_id_;
   // Offset for staging pose relative to dock pose
   double staging_x_offset_;

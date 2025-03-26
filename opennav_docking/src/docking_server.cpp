@@ -36,6 +36,7 @@ DockingServer::DockingServer(const rclcpp::NodeOptions & options)
   declare_parameter("undock_linear_tolerance", 0.05);
   declare_parameter("undock_angular_tolerance", 0.05);
   declare_parameter("max_retries", 3);
+  declare_parameter("retry_patience", 20.0);
   declare_parameter("base_frame", "base_link");
   declare_parameter("fixed_frame", "odom");
   declare_parameter("dock_backwards", false);
@@ -55,6 +56,7 @@ DockingServer::on_configure(const rclcpp_lifecycle::State & /*state*/)
   get_parameter("undock_linear_tolerance", undock_linear_tolerance_);
   get_parameter("undock_angular_tolerance", undock_angular_tolerance_);
   get_parameter("max_retries", max_retries_);
+  get_parameter("retry_patience", retry_patience_);
   get_parameter("base_frame", base_frame_);
   get_parameter("fixed_frame", fixed_frame_);
   get_parameter("dock_backwards", dock_backwards_);
@@ -220,6 +222,7 @@ void DockingServer::dockRobot()
   getPreemptedGoalIfRequested(goal, docking_action_server_);
   Dock * dock{nullptr};
   num_retries_ = 0;
+  start_time_ = this->get_clock()->now().seconds();
 
   try {
     // Get dock (instance and plugin information) from request
@@ -283,22 +286,26 @@ void DockingServer::dockRobot()
         docking_action_server_->terminate_all(result);
         return;
       } catch (opennav_docking_core::DockingException & e) {
-        if (++num_retries_ > max_retries_) {
-          RCLCPP_ERROR(get_logger(), "Failed to dock, all retries have been used");
+        // if (++num_retries_ > max_retries_) 
+        if (this->now().seconds() - start_time_ > retry_patience_)
+        {
+          ++num_retries_;
+          RCLCPP_ERROR(get_logger(), "Exceeded retry patience, Failed to dock");
           throw;
         }
+        RCLCPP_WARN(get_logger(), "Time since start: %.3f", this->now().seconds() - start_time_);
         RCLCPP_WARN(get_logger(), "Docking failed, will retry: %s", e.what());
       }
 
       // Reset to staging pose to try again
-      if (!resetApproach(dock->getStagingPose())) {
-        // Cancelled, preempted, or shutting down
-        stashDockData(goal->use_dock_id, dock, false);
-        publishZeroVelocity();
-        docking_action_server_->terminate_all(result);
-        return;
-      }
-      RCLCPP_INFO(get_logger(), "Returned to staging pose, attempting docking again");
+      // if (!resetApproach(dock->getStagingPose())) {
+      //   // Cancelled, preempted, or shutting down
+      //   stashDockData(goal->use_dock_id, dock, false);
+      //   publishZeroVelocity();
+      //   docking_action_server_->terminate_all(result);
+      //   return;
+      // }
+      // RCLCPP_INFO(get_logger(), "Returned to staging pose, attempting docking again");
     }
   } catch (const tf2::TransformException & e) {
     RCLCPP_ERROR(get_logger(), "Transform error: %s", e.what());
@@ -388,7 +395,7 @@ bool DockingServer::approachDock(Dock * dock, geometry_msgs::msg::PoseStamped & 
     publishDockingFeedback(DockRobot::Feedback::CONTROLLING);
 
     // Stop and report success if connected to dock
-    if (dock->plugin->isDocked() || dock->plugin->isCharging()) {
+    if (dock->plugin->isDocked() && dock->plugin->isHeadingReached()) {
       return true;
     }
 
@@ -410,16 +417,18 @@ bool DockingServer::approachDock(Dock * dock, geometry_msgs::msg::PoseStamped & 
 
     // Make sure that the target pose is pointing at the robot when moving backwards
     // This is to ensure that the robot doesn't try to dock from the wrong side
-    if (dock_backwards_) {
-      target_pose.pose.orientation = nav2_util::geometry_utils::orientationAroundZAxis(
-        tf2::getYaw(target_pose.pose.orientation) + M_PI);
-    }
+    // if (dock_backwards_) {
+    //   target_pose.pose.orientation = nav2_util::geometry_utils::orientationAroundZAxis(
+    //     tf2::getYaw(target_pose.pose.orientation) + M_PI);
+    // }
 
     // The control law can get jittery when close to the end when atan2's can explode.
     // Thus, we backward project the controller's target pose a little bit after the
     // dock so that the robot never gets to the end of the spiral before its in contact
     // with the dock to stop the docking procedure.
-    const double backward_projection = 0.25;
+    double backward_projection = 0.25;
+    if (dock_backwards_)
+      backward_projection = -0.25;
     const double yaw = tf2::getYaw(target_pose.pose.orientation);
     target_pose.pose.position.x += cos(yaw) * backward_projection;
     target_pose.pose.position.y += sin(yaw) * backward_projection;
@@ -427,8 +436,17 @@ bool DockingServer::approachDock(Dock * dock, geometry_msgs::msg::PoseStamped & 
 
     // Compute and publish controls
     geometry_msgs::msg::Twist command;
-    if (!controller_->computeVelocityCommand(target_pose.pose, command, true, dock_backwards_)) {
-      throw opennav_docking_core::FailedToControl("Failed to get control");
+    if(!dock->plugin->isDocked())
+    {
+      if (!controller_->computeVelocityCommand(target_pose.pose, command, true, dock_backwards_)) {
+        throw opennav_docking_core::FailedToControl("Failed to get control");
+      }
+    }
+    else
+    {
+      if (!controller_->computeFinalHeadingAdjustmentVelocityCommand(target_pose.pose, command)) {
+        throw opennav_docking_core::FailedToControl("Failed to get control");
+      }
     }
     vel_publisher_->publish(command);
 
@@ -695,6 +713,8 @@ DockingServer::dynamicParametersCallback(std::vector<rclcpp::Parameter> paramete
         undock_linear_tolerance_ = parameter.as_double();
       } else if (name == "undock_angular_tolerance") {
         undock_angular_tolerance_ = parameter.as_double();
+      } else if (name == "retry_patience") {
+        retry_patience_ = parameter.as_double();
       }
     } else if (type == ParameterType::PARAMETER_STRING) {
       if (name == "base_frame") {
@@ -705,6 +725,10 @@ DockingServer::dynamicParametersCallback(std::vector<rclcpp::Parameter> paramete
     } else if (type == ParameterType::PARAMETER_INTEGER) {
       if (name == "max_retries") {
         max_retries_ = parameter.as_int();
+      }
+    } else if (type == ParameterType::PARAMETER_BOOL) {
+      if (name == "dock_backwards") {
+        dock_backwards_ = parameter.as_bool();
       }
     }
   }

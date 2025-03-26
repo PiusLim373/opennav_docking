@@ -67,6 +67,11 @@ public:
     const geometry_msgs::msg::Pose & pose, geometry_msgs::msg::Twist & cmd, bool is_docking,
     bool backward = false);
 
+  bool computeFinalHeadingAdjustmentVelocityCommand(
+    const geometry_msgs::msg::Pose & pose, geometry_msgs::msg::Twist & cmd);
+  double forceMinMax(double value, double min, double max);
+  double forceMinAbsolute(double value, double min_abs);
+
 protected:
   /**
    * @brief Check if a trajectory is collision free.

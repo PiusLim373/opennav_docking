@@ -174,7 +174,7 @@ some robots.
 
 During the docking approach, there are two options for detecting `isDocked`:
 1. We can check the joint states of the wheels if the current has spiked above a set threshold to indicate that the robot has made contact with the dock or other physical object.
-2. The dock pose is compared with the robot pose and `isDocked` returns true when the distance drops below the specified `docking_threshold`.
+2. The dock pose is compared with the robot pose and `isDocked` returns true when the distance drops below the specified `goal_distance_tolerance`.
 
 The `isCharging` and `hasStoppedCharging` functions have two options:
 1. Subscribing to a `sensor_msgs/BatteryState` message on topic `battery_state`. The robot is considered charging when the `current` field of the message exceeds the `charging_threshold`.
@@ -242,7 +242,7 @@ Note: `dock_plugins` and either `docks` or `dock_database` are required.
 | stall_joint_names        | Names in `joint_states` topic of joints to track   | vector<string> | N/A      |
 | stall_velocity_threshold        | The joint velocity below which to trigger `isDocked() = true`    | double |  1.0      |
 | stall_effort_threshold        | Current or motor effort in joint state to trigger `isDocked() = true`    | double |  1.0      |
-| docking_threshold        | If not using stall detection, the pose threshold to the docking pose where `isDocked() = true`    | double |  0.05     |
+| goal_distance_tolerance        | If not using stall detection, the pose threshold to the docking pose where `isDocked() = true`    | double |  0.05     |
 | staging_x_offset        | Staging pose offset forward (negative) of dock pose (m)    | double |  -0.7    |
 | staging_yaw_offset        | Staging pose angle relative to dock pose (rad)    | double |  0.0    |
 

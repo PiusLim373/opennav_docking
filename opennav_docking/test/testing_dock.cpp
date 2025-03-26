@@ -83,6 +83,11 @@ public:
     return false;
   }
 
+  virtual bool isHeadingReached()
+  {
+    return false;
+  }
+
   virtual bool isCharging()
   {
     return false;

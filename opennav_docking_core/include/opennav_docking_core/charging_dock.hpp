@@ -92,6 +92,7 @@ public:
    * the docking controller loop.
    */
   virtual bool isDocked() = 0;
+  virtual bool isHeadingReached() = 0;
 
   /**
    * @brief Are we charging? If a charge dock requires any sort of negotiation
