@@ -40,7 +40,7 @@ DockingServer::DockingServer(const rclcpp::NodeOptions & options)
   declare_parameter("base_frame", "base_link");
   declare_parameter("fixed_frame", "odom");
   declare_parameter("dock_backwards", false);
-  declare_parameter("dock_prestaging_tolerance", 0.5);
+  declare_parameter("dock_prestaging_tolerance", 0.1);
 }
 
 nav2_util::CallbackReturn
@@ -234,7 +234,7 @@ void DockingServer::dockRobot()
     } else {
       RCLCPP_INFO(
         get_logger(),
-        "Attempting to dock robot at charger at position (%0.2f, %0.2f).",
+        "Attempting to dock robot to position (%0.2f, %0.2f) in odom frame",
         goal->dock_pose.pose.position.x, goal->dock_pose.pose.position.y);
       dock = generateGoalDock(goal);
     }
@@ -246,7 +246,7 @@ void DockingServer::dockRobot()
     if (!goal->navigate_to_staging_pose ||
       utils::l2Norm(robot_pose.pose, initial_staging_pose.pose) < dock_prestaging_tolerance_)
     {
-      RCLCPP_INFO(get_logger(), "Robot already within pre-staging pose tolerance for dock");
+      // RCLCPP_INFO(get_logger(), "Robot already within pre-staging pose tolerance for dock");
     } else {
       navigator_->goToPose(
         initial_staging_pose, rclcpp::Duration::from_seconds(goal->max_staging_time));
@@ -256,10 +256,39 @@ void DockingServer::dockRobot()
     // Construct initial estimate of where the dock is located in fixed_frame
     auto dock_pose = utils::getDockPoseStamped(dock, rclcpp::Time(0));
     tf2_buffer_->transform(dock_pose, dock_pose, fixed_frame_);
+    if (goal->navigate_to_staging_pose)
+    {
+      geometry_msgs::msg::PoseStamped dock_pose_base_link;
+      tf2_buffer_->transform(dock_pose, dock_pose_base_link, base_frame_, tf2::durationFromSec(1.0));
+      RCLCPP_INFO(get_logger(), "dock_pose_base_link after transform: (%.2f, %.2f), frame: %s",
+        dock_pose_base_link.pose.position.x, dock_pose_base_link.pose.position.y, dock_pose_base_link.header.frame_id.c_str()
+      );
+      if (dock_pose_base_link.pose.position.x >= 0.0)
+      {
+        if (dock_backwards_)
+        {
+          dock_backwards_ = false;
+          RCLCPP_INFO(get_logger(),
+                      "use_staging_pose and dock_backwards activated, but target is in front, setting dock_backwards "
+                      "to false");
+        }
+      }
+      else
+      {
+        if (!dock_backwards_)
+        {
+          dock_backwards_ = true;
+          RCLCPP_INFO(get_logger(),
+                      "use_staging_pose and dock_backwards activated, but target is behind, setting dock_backwards "
+                      "to true");
+        }
+      }
+      RCLCPP_INFO(get_logger(), "use staging pose activated, docking backwards: %s", dock_backwards_ ? "true" : "false");
+    }
 
     // Get initial detection of dock before proceeding to move
     doInitialPerception(dock, dock_pose);
-    RCLCPP_INFO(get_logger(), "Successful initial dock detection");
+    // RCLCPP_INFO(get_logger(), "Successful initial dock detection");
 
     // Docking control loop: while not docked, run controller
     rclcpp::Time dock_contact_time;
@@ -267,17 +296,13 @@ void DockingServer::dockRobot()
       try {
         // Approach the dock using control law
         if (approachDock(dock, dock_pose)) {
-          // We are docked, wait for charging to begin
-          RCLCPP_INFO(get_logger(), "Made contact with dock, waiting for charge to start");
-          if (waitForCharge(dock)) {
-            RCLCPP_INFO(get_logger(), "Robot is charging!");
-            result->success = true;
-            result->num_retries = num_retries_;
-            stashDockData(goal->use_dock_id, dock, true);
-            publishZeroVelocity();
-            docking_action_server_->succeeded_current(result);
-            return;
-          }
+          // successfully docked
+          result->success = true;
+          result->num_retries = num_retries_;
+          stashDockData(goal->use_dock_id, dock, true);
+          publishZeroVelocity();
+          docking_action_server_->succeeded_current(result);
+          return;
         }
 
         // Cancelled, preempted, or shutting down (recoverable errors throw DockingException)
@@ -287,14 +312,13 @@ void DockingServer::dockRobot()
         return;
       } catch (opennav_docking_core::DockingException & e) {
         // if (++num_retries_ > max_retries_) 
-        if (this->now().seconds() - start_time_ > retry_patience_)
+        if (this->now().seconds() - start_time_ > dock_approach_timeout_)
         {
           ++num_retries_;
-          RCLCPP_ERROR(get_logger(), "Exceeded retry patience, Failed to dock");
           throw;
         }
         RCLCPP_WARN(get_logger(), "Time since start: %.3f", this->now().seconds() - start_time_);
-        RCLCPP_WARN(get_logger(), "Docking failed, will retry: %s", e.what());
+        RCLCPP_WARN(get_logger(), "Docking failed, obstacle on path, opennav exception: %s", e.what());
       }
 
       // Reset to staging pose to try again
@@ -388,6 +412,7 @@ void DockingServer::doInitialPerception(Dock * dock, geometry_msgs::msg::PoseSta
 
 bool DockingServer::approachDock(Dock * dock, geometry_msgs::msg::PoseStamped & dock_pose)
 {
+  RCLCPP_INFO(get_logger(), "Docking Started");
   rclcpp::Rate loop_rate(controller_frequency_);
   auto start = this->now();
   auto timeout = rclcpp::Duration::from_seconds(dock_approach_timeout_);
@@ -452,7 +477,7 @@ bool DockingServer::approachDock(Dock * dock, geometry_msgs::msg::PoseStamped & 
 
     if (this->now() - start > timeout) {
       throw opennav_docking_core::FailedToControl(
-              "Timed out approaching dock; dock nor charging detected");
+              "Timed out approaching dock, could have overshot the goal");
     }
 
     loop_rate.sleep();

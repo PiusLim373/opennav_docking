@@ -118,7 +118,7 @@ void SimpleChargingDock::configure(
   if (use_external_detection_pose_) {
     dock_pose_.header.stamp = rclcpp::Time(0);
     dock_pose_sub_ = node_->create_subscription<geometry_msgs::msg::PoseStamped>(
-      "detected_dock_pose", 1,
+      "transformed_registration_docking_pose", 1,
       [this](const geometry_msgs::msg::PoseStamped::SharedPtr pose) {
         detected_dock_pose_ = *pose;
       });
@@ -270,7 +270,9 @@ bool SimpleChargingDock::isDocked()
     base_pose.pose.position.y - dock_pose_.pose.position.y);
   if (d < goal_distance_tolerance_) 
   {
-    RCLCPP_INFO(node_->get_logger(), "xy_reached, xy_error: %.3f, goal_distance_tolerance: %.3f", d, goal_distance_tolerance_);
+    RCLCPP_INFO_THROTTLE(node_->get_logger(), *node_->get_clock(), 2000,
+                         "[Docking Server] xy_reached, xy_error: %.3f, goal_distance_tolerance: %.3f", d,
+                         goal_distance_tolerance_);
     return true;
   }
   return false;
