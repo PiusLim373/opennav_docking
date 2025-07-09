@@ -28,6 +28,7 @@
 #include "nav2_graceful_controller/smooth_control_law.hpp"
 #include "nav_msgs/msg/path.hpp"
 #include "nav2_util/lifecycle_node.hpp"
+#include "std_msgs/msg/bool.hpp"
 
 namespace opennav_docking
 {
@@ -118,6 +119,7 @@ protected:
 
   // The trajectory of the robot while dock / undock for visualization / debug purposes
   rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr trajectory_pub_;
+  rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr is_path_blocked_pub_;
 
   // Used for collision checking
   bool use_collision_detection_;

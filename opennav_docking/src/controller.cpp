@@ -97,12 +97,15 @@ Controller::Controller(
 
   trajectory_pub_ =
     node->create_publisher<nav_msgs::msg::Path>("docking_trajectory", 1);
+  is_path_blocked_pub_ =
+    node->create_publisher<std_msgs::msg::Bool>("is_path_blocked", 1);
 }
 
 Controller::~Controller()
 {
   control_law_.reset();
   trajectory_pub_.reset();
+  is_path_blocked_pub_.reset();
   collision_checker_.reset();
   costmap_sub_.reset();
   footprint_sub_.reset();
@@ -215,6 +218,9 @@ bool Controller::isTrajectoryCollisionFree(
         local_pose.pose.position.x, local_pose.pose.position.y, local_pose.pose.position.z,
         local_pose.header.frame_id.c_str());
       trajectory_pub_->publish(trajectory);
+      std_msgs::msg::Bool is_path_blocked_msg;
+      is_path_blocked_msg.data = true;
+      is_path_blocked_pub_->publish(is_path_blocked_msg);
       return false;
     }
 
@@ -223,6 +229,9 @@ bool Controller::isTrajectoryCollisionFree(
   }while(distance > 1e-2 && trajectory.poses.size() < max_iter);
 
   trajectory_pub_->publish(trajectory);
+  std_msgs::msg::Bool is_path_blocked_msg;
+  is_path_blocked_msg.data = false;
+  is_path_blocked_pub_->publish(is_path_blocked_msg);
 
   return true;
 }
