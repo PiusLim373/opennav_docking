@@ -451,12 +451,14 @@ bool DockingServer::approachDock(Dock * dock, geometry_msgs::msg::PoseStamped & 
     // Thus, we backward project the controller's target pose a little bit after the
     // dock so that the robot never gets to the end of the spiral before its in contact
     // with the dock to stop the docking procedure.
-    double backward_projection = 0.25;
-    if (dock_backwards_)
-      backward_projection = -0.25;
-    const double yaw = tf2::getYaw(target_pose.pose.orientation);
-    target_pose.pose.position.x += cos(yaw) * backward_projection;
-    target_pose.pose.position.y += sin(yaw) * backward_projection;
+    // double backward_projection = 0.25;
+    // if (dock_backwards_)
+    //   backward_projection = -0.25;
+    // const double yaw = tf2::getYaw(target_pose.pose.orientation);
+    // target_pose.pose.position.x += cos(yaw) * backward_projection;
+    // target_pose.pose.position.y += sin(yaw) * backward_projection;
+    // SESTO update: backward projection will make the docking exceeds the target pose and went on uncontrollably.
+
     tf2_buffer_->transform(target_pose, target_pose, base_frame_);
 
     // Compute and publish controls
