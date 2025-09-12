@@ -171,8 +171,7 @@ bool Controller::isTrajectoryCollisionFree(
   geometry_msgs::msg::TransformStamped base_to_fixed_transform;
   try {
     base_to_fixed_transform = tf2_buffer_->lookupTransform(
-      fixed_frame_, base_frame_, trajectory.header.stamp,
-      tf2::durationFromSec(transform_tolerance_));
+      fixed_frame_, base_frame_, tf2::TimePointZero);
   } catch (tf2::TransformException & ex) {
     RCLCPP_ERROR(
       logger_, "Could not get transform from %s to %s: %s",
@@ -206,11 +205,10 @@ bool Controller::isTrajectoryCollisionFree(
       std::hypot(next_pose.pose.position.x, next_pose.pose.position.y);
 
     // If this distance is greater than the dock_collision_threshold, check for collisions
-    // RCLCPP_INFO(
-    //   logger_, "Dock collision distance: %.2f, threshold: %.2f",
-    //   dock_collision_distance, dock_collision_threshold_);
+    RCLCPP_DEBUG(
+      logger_, "is_docking: %d,  Dock collision distance: %.3f, threshold: %.3f",
+      is_docking, dock_collision_distance, dock_collision_threshold_);
     if (use_collision_detection_ &&
-      dock_collision_distance > dock_collision_threshold_ &&
       !collision_checker_->isCollisionFree(nav_2d_utils::poseToPose2D(local_pose.pose)))
     {
       RCLCPP_WARN(
