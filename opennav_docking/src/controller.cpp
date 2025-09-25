@@ -132,7 +132,7 @@ bool Controller::computeFinalHeadingAdjustmentVelocityCommand(const geometry_msg
   std::lock_guard<std::mutex> lock(dynamic_params_lock_);
   double yaw = tf2::getYaw(pose.orientation);
   cmd.angular.z = forceMinMax(yaw, -v_angular_max_, v_angular_max_);
-  cmd.angular.z = forceMinAbsolute(cmd.angular.z, 0.05);
+  cmd.angular.z = forceMinAbsolute(cmd.angular.z, 0.01);
   return isTrajectoryCollisionFree(pose, true, false);
 }
 
