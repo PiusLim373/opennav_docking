@@ -22,6 +22,7 @@ find_package(pluginlib REQUIRED)
 find_package(yaml_cpp_vendor REQUIRED)
 find_package(opennav_docking_msgs REQUIRED)
 find_package(opennav_docking_core REQUIRED)
+find_package(sesto_msgs REQUIRED)
 
 # potentially replace with nav2_common, nav2_package()
 set(CMAKE_CXX_STANDARD 17)
@@ -55,6 +56,7 @@ set(dependencies
   yaml_cpp_vendor
   opennav_docking_msgs
   opennav_docking_core
+  sesto_msgs
 )
 
 add_library(controller SHARED

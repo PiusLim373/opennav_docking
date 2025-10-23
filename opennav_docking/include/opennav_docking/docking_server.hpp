@@ -31,6 +31,7 @@
 #include "opennav_docking/navigator.hpp"
 #include "opennav_docking_core/charging_dock.hpp"
 #include "tf2_ros/transform_listener.h"
+#include "sesto_msgs/msg/paused_status.hpp"
 
 namespace opennav_docking
 {
@@ -215,6 +216,7 @@ protected:
    */
   rcl_interfaces::msg::SetParametersResult
   dynamicParametersCallback(std::vector<rclcpp::Parameter> parameters);
+  void amrPausedStatusCallback(const sesto_msgs::msg::PausedStatus::SharedPtr msg);
 
   // Dynamic parameters handler
   rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr dyn_params_handler_;
@@ -245,11 +247,16 @@ protected:
   bool dock_backwards_;
   // The tolerance to the dock's staging pose not requiring navigation
   double dock_prestaging_tolerance_;
+  
+  // The AMR paused status
+  bool is_amr_paused_ = false;
 
   // This is a class member so it can be accessed in publish feedback
   rclcpp::Time action_start_time_;
 
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr vel_publisher_;
+  rclcpp::Subscription<sesto_msgs::msg::PausedStatus>::SharedPtr amr_paused_status_sub_;
+
 
   std::unique_ptr<DockingActionServer> docking_action_server_;
   std::unique_ptr<UndockingActionServer> undocking_action_server_;

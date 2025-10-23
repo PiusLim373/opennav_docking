@@ -64,6 +64,11 @@ DockingServer::on_configure(const rclcpp_lifecycle::State & /*state*/)
   RCLCPP_INFO(get_logger(), "Controller frequency set to %.4fHz", controller_frequency_);
 
   vel_publisher_ = create_publisher<geometry_msgs::msg::Twist>("cmd_vel_nav", 1);
+  amr_paused_status_sub_ = create_subscription<sesto_msgs::msg::PausedStatus>(
+    "amr_paused_state", rclcpp::QoS(10),
+    std::bind(&DockingServer::amrPausedStatusCallback, this, std::placeholders::_1));
+
+  
   tf2_buffer_ = std::make_shared<tf2_ros::Buffer>(node->get_clock());
 
   double action_server_result_timeout;
@@ -197,6 +202,13 @@ bool DockingServer::checkAndWarnIfPreempted(
     return true;
   }
   return false;
+}
+void DockingServer::amrPausedStatusCallback(const sesto_msgs::msg::PausedStatus::SharedPtr msg)
+{
+  if (msg->status == sesto_msgs::msg::PausedStatus::PAUSED) 
+    is_amr_paused_ = true;
+  else 
+    is_amr_paused_ = false;
 }
 
 void DockingServer::dockRobot()
@@ -418,6 +430,12 @@ bool DockingServer::approachDock(Dock * dock, geometry_msgs::msg::PoseStamped & 
   auto timeout = rclcpp::Duration::from_seconds(dock_approach_timeout_);
   while (rclcpp::ok()) {
     publishDockingFeedback(DockRobot::Feedback::CONTROLLING);
+    // not doing anything if robot is paused
+    if (is_amr_paused_) {
+      RCLCPP_INFO_THROTTLE(get_logger(), *this->get_clock(), 1000, "Robot is paused, not docking");
+      loop_rate.sleep();
+      continue;
+    }
 
     // Stop and report success if connected to dock
     if (dock->plugin->isDocked() && dock->plugin->isHeadingReached()) {
